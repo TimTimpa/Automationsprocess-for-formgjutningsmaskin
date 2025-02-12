@@ -1,0 +1,1 @@
+# Automationsprocess-for-formgjutningsmaskin
