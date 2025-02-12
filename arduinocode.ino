@@ -4,6 +4,7 @@
 #include <Encoder.h>
 #include <DHT.h>
 #include <AccelStepper.h>
+#include <PID_v1.h>
 
 // Define screen dimensions and reset pin for the OLED display
 #define SCREEN_WIDTH 128
@@ -40,9 +41,16 @@ int currentHolder = 0;  // Current holder position
 
 bool heatingStarted = false;  // Flag to indicate if heating has started
 
+// PID control variables
+double Setpoint, Input, Output;
+double Kp = 2, Ki = 5, Kd = 1;
+PID myPID(&Input, &Output, &Setpoint, Kp, Ki, Kd, DIRECT);
+int relayPin = 6;  // Pin for the relay
+
 void setup() {
   pinMode(buttonPin, INPUT_PULLUP);  // Set button pin as input with pull-up resistor
   pinMode(microSwitchPin, INPUT_PULLUP);  // Set micro switch pin as input with pull-up resistor
+  pinMode(relayPin, OUTPUT);  // Set relay pin as output
   display.begin(SSD1306_SWITCHCAPVCC, 0x3C);  // Initialize the OLED display
   display.clearDisplay();  // Clear the display
   display.display();  // Update the display
@@ -50,6 +58,7 @@ void setup() {
   dht.begin();  // Initialize the DHT sensor
   stepper.setMaxSpeed(1000);  // Set the maximum speed for the stepper motor
   stepper.setAcceleration(500);  // Set the acceleration for the stepper motor
+  myPID.SetMode(AUTOMATIC);  // Set the PID controller to automatic mode
 }
 
 void loop() {
@@ -84,6 +93,7 @@ void loop() {
 
     if (digitalRead(buttonPin) == LOW) {  // If the button is pressed
       heatingStarted = true;  // Indicate that heating has started
+      Setpoint = selectedTemp;  // Set the desired temperature
       screenState = MAIN_MENU;  // Switch back to the main menu
       delay(500);  // Debounce delay to prevent multiple selections
     }
@@ -110,6 +120,16 @@ void loop() {
     if (digitalRead(buttonPin) == LOW) {  // If the button is pressed
       screenState = MAIN_MENU;  // Switch back to the main menu
       delay(500);  // Debounce delay to prevent multiple selections
+    }
+  }
+
+  if (heatingStarted) {
+    Input = dht.readTemperature();  // Read the current temperature from the DHT sensor
+    myPID.Compute();  // Compute the PID output
+    if (Output > 0) {
+      digitalWrite(relayPin, HIGH);  // Turn on the relay
+    } else {
+      digitalWrite(relayPin, LOW);  // Turn off the relay
     }
   }
 }
