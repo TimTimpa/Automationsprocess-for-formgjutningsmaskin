@@ -5,6 +5,8 @@
 #include <DHT.h>
 #include <AccelStepper.h>
 #include <PID_v1.h>
+#include <Ethernet.h>
+#include <SPI.h>
 
 // Define screen dimensions and reset pin for the OLED display
 #define SCREEN_WIDTH 128
@@ -47,6 +49,11 @@ double Kp = 2, Ki = 5, Kd = 1;
 PID myPID(&Input, &Output, &Setpoint, Kp, Ki, Kd, DIRECT);
 int relayPin = 6;  // Pin for the relay
 
+// Ethernet settings
+byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED };
+IPAddress ip(192, 168, 1, 177);
+EthernetServer server(80);
+
 void setup() {
   pinMode(buttonPin, INPUT_PULLUP);  // Set button pin as input with pull-up resistor
   pinMode(microSwitchPin, INPUT_PULLUP);  // Set micro switch pin as input with pull-up resistor
@@ -59,6 +66,10 @@ void setup() {
   stepper.setMaxSpeed(1000);  // Set the maximum speed for the stepper motor
   stepper.setAcceleration(500);  // Set the acceleration for the stepper motor
   myPID.SetMode(AUTOMATIC);  // Set the PID controller to automatic mode
+
+  // Start Ethernet and server
+  Ethernet.begin(mac, ip);
+  server.begin();
 }
 
 void loop() {
@@ -93,7 +104,7 @@ void loop() {
 
     if (digitalRead(buttonPin) == LOW) {  // If the button is pressed
       heatingStarted = true;  // Indicate that heating has started
-      Setpoint = selectedTemp;  // Set the desired temperature
+      Setpoint = selectedTemp;  // Set the PID setpoint to the selected temperature
       screenState = MAIN_MENU;  // Switch back to the main menu
       delay(500);  // Debounce delay to prevent multiple selections
     }
@@ -115,7 +126,7 @@ void loop() {
   } else if (screenState == STATUS_MENU) {
     currentTemp = dht.readTemperature();  // Read the current temperature from the DHT sensor
 
-    displayStatusMenu(currentTemp, heatingStarted);  // Display the status menu
+    displayStatusMenu(currentTemp, heatingStarted, Ethernet.localIP());  // Display the status menu
 
     if (digitalRead(buttonPin) == LOW) {  // If the button is pressed
       screenState = MAIN_MENU;  // Switch back to the main menu
@@ -123,14 +134,46 @@ void loop() {
     }
   }
 
+  // PID control for heating
   if (heatingStarted) {
-    Input = dht.readTemperature();  // Read the current temperature from the DHT sensor
+    currentTemp = dht.readTemperature();  // Read the current temperature from the DHT sensor
+    Input = currentTemp;  // Set the PID input to the current temperature
     myPID.Compute();  // Compute the PID output
-    if (Output > 0) {
-      digitalWrite(relayPin, HIGH);  // Turn on the relay
-    } else {
-      digitalWrite(relayPin, LOW);  // Turn off the relay
+    analogWrite(relayPin, Output);  // Control the relay with the PID output
+  }
+
+  // Handle web server
+  EthernetClient client = server.available();
+  if (client) {
+    String currentLine = "";
+    while (client.connected()) {
+      if (client.available()) {
+        char c = client.read();
+        if (c == '\n') {
+          if (currentLine.length() == 0) {
+            client.println("HTTP/1.1 200 OK");
+            client.println("Content-Type: text/html");
+            client.println("Connection: close");
+            client.println();
+            client.println("<!DOCTYPE HTML>");
+            client.println("<html>");
+            client.println("<h1>Status</h1>");
+            client.println("<p>Current Temp: " + String(currentTemp) + "</p>");
+            client.println("<p>Set Temp: " + String(selectedTemp) + "</p>");
+            client.println("<p>Heating: " + String(heatingStarted ? "Started" : "Not Started") + "</p>");
+            client.println("<p>IP Address: " + Ethernet.localIP().toString() + "</p>");
+            client.println("</html>");
+            break;
+          } else {
+            currentLine = "";
+          }
+        } else if (c != '\r') {
+          currentLine += c;
+        }
+      }
     }
+    delay(1);
+    client.stop();
   }
 }
 
@@ -187,7 +230,7 @@ void displayLoadMenu(int currentHolder) {
   display.display();  // Update the display with the new content
 }
 
-void displayStatusMenu(float currentTemp, bool heatingStarted) {
+void displayStatusMenu(float currentTemp, bool heatingStarted, IPAddress ip) {
   display.clearDisplay();  // Clear the display
   display.setTextSize(1);  // Set the text size
   display.setTextColor(SSD1306_WHITE);  // Set the text color to white
@@ -201,6 +244,10 @@ void displayStatusMenu(float currentTemp, bool heatingStarted) {
   display.println(heatingStarted ? "Started" : "Not Started");  // Print the heating status
 
   display.setCursor(0, 32);  // Set the cursor position
+  display.print("IP: ");  // Print the IP address label
+  display.println(ip);  // Print the IP address
+
+  display.setCursor(0, 48);  // Set the cursor position
   display.print("Tillbaka");  // Print the back option
 
   display.display();  // Update the display with the new content
