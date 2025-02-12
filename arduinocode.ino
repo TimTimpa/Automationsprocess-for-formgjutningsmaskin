@@ -25,7 +25,7 @@ const char* options[] = {"Starta uppvärmning", "Starta laddning", "Status", "Fe
 const int numOptions = sizeof(options) / sizeof(options[0]);  // Number of menu options
 
 // Define screen states
-enum ScreenState { MAIN_MENU, TEMP_MENU, LOAD_MENU };
+enum ScreenState { MAIN_MENU, TEMP_MENU, LOAD_MENU, STATUS_MENU };
 ScreenState screenState = MAIN_MENU;  // Initial screen state
 
 // Initialize the DHT sensor with pin 5 and type DHT11
@@ -37,6 +37,8 @@ int selectedTemp = 20;  // Selected temperature
 AccelStepper stepper(AccelStepper::DRIVER, 8, 9);
 int microSwitchPin = 10;  // Pin for the micro switch
 int currentHolder = 0;  // Current holder position
+
+bool heatingStarted = false;  // Flag to indicate if heating has started
 
 void setup() {
   pinMode(buttonPin, INPUT_PULLUP);  // Set button pin as input with pull-up resistor
@@ -67,6 +69,8 @@ void loop() {
       } else if (selectedOption == 1) {
         screenState = LOAD_MENU;  // Switch to load menu
         myEnc.write(currentHolder * 4);  // Set the encoder position to the current holder
+      } else if (selectedOption == 2) {
+        screenState = STATUS_MENU;  // Switch to status menu
       } else {
         displayMenu(selectedOption);  // Display the menu with the selected option highlighted
       }
@@ -79,7 +83,7 @@ void loop() {
     displayTempMenu(currentTemp, selectedTemp);  // Display the temperature menu
 
     if (digitalRead(buttonPin) == LOW) {  // If the button is pressed
-      // Save the selected temperature
+      heatingStarted = true;  // Indicate that heating has started
       screenState = MAIN_MENU;  // Switch back to the main menu
       delay(500);  // Debounce delay to prevent multiple selections
     }
@@ -95,6 +99,15 @@ void loop() {
       } else {
         rotateRight();  // Rotate the stepper motor to the right
       }
+      screenState = MAIN_MENU;  // Switch back to the main menu
+      delay(500);  // Debounce delay to prevent multiple selections
+    }
+  } else if (screenState == STATUS_MENU) {
+    currentTemp = dht.readTemperature();  // Read the current temperature from the DHT sensor
+
+    displayStatusMenu(currentTemp, heatingStarted);  // Display the status menu
+
+    if (digitalRead(buttonPin) == LOW) {  // If the button is pressed
       screenState = MAIN_MENU;  // Switch back to the main menu
       delay(500);  // Debounce delay to prevent multiple selections
     }
@@ -150,6 +163,25 @@ void displayLoadMenu(int currentHolder) {
 
   display.setCursor(0, 32);  // Set the cursor position
   display.print("Rotate Right");  // Print the rotate right option
+
+  display.display();  // Update the display with the new content
+}
+
+void displayStatusMenu(float currentTemp, bool heatingStarted) {
+  display.clearDisplay();  // Clear the display
+  display.setTextSize(1);  // Set the text size
+  display.setTextColor(SSD1306_WHITE);  // Set the text color to white
+
+  display.setCursor(0, 0);  // Set the cursor position
+  display.print("Current Temp: ");  // Print the current temperature label
+  display.println(currentTemp);  // Print the current temperature
+
+  display.setCursor(0, 16);  // Set the cursor position
+  display.print("Heating: ");  // Print the heating status label
+  display.println(heatingStarted ? "Started" : "Not Started");  // Print the heating status
+
+  display.setCursor(0, 32);  // Set the cursor position
+  display.print("Tillbaka");  // Print the back option
 
   display.display();  // Update the display with the new content
 }
